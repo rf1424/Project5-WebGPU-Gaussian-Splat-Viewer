@@ -59,7 +59,10 @@ struct Splat {
     //TODO: store information for 2D splat rendering
 };
 
-//TODO: bind your data here
+@group(0) @binding(0) 
+var<uniform> camera: CameraUniforms;
+@group(1) @binding(0)
+var<storage, read> gaussians : array<Gaussian>;
 @group(2) @binding(0)
 var<storage, read_write> sort_infos: SortInfos;
 @group(2) @binding(1)
@@ -111,8 +114,32 @@ fn computeColorFromSH(dir: vec3<f32>, v_idx: u32, sh_deg: u32) -> vec3<f32> {
 @compute @workgroup_size(workgroupSize,1,1)
 fn preprocess(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) wgs: vec3<u32>) {
     let idx = gid.x;
-    //TODO: set up pipeline as described in instruction
+
+    if (idx > arrayLength(&gaussians)) {
+        return;
+    }
+
+    let xy = unpack2x16float(gaussians[idx].pos_opacity[0]);
+    let za = unpack2x16float(gaussians[idx].pos_opacity[1]);
+    let pos = vec4<f32>(xy.x, xy.y, za.x, 1.0);
+
+    // world -> clip space 
+    let clip_pos = camera.proj * camera.view * pos;
+
+    if (clip_pos.w <= 0.) { 
+        return; 
+    }
+
+    let ndc = clip_pos.xyz / clip_pos.w;
+    let edgeBounds = 1.2;
+    if (abs(ndc.x) > edgeBounds || abs(ndc.y) > edgeBounds) { return; }
+
+    let key_idx = atomicAdd(&sort_infos.keys_size, 1u);
+    sort_indices[key_idx] = idx;
 
     let keys_per_dispatch = workgroupSize * sortKeyPerThread; 
     // increment DispatchIndirect.dispatchx each time you reach limit for one dispatch of keys
+    if (key_idx % keys_per_dispatch == 0u) {
+        atomicAdd(&sort_dispatch.dispatch_x, 1u);
+    }
 }
