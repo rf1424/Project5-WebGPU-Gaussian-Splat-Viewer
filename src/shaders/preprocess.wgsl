@@ -71,6 +71,7 @@ var<storage, read_write> sort_depths : array<u32>;
 var<storage, read_write> sort_indices : array<u32>;
 @group(2) @binding(3)
 var<storage, read_write> sort_dispatch: DispatchIndirect;
+@group(3) @binding(0) var<uniform> renderSettings: RenderSettings;
 
 /// reads the ith sh coef from the storage buffer 
 fn sh_coef(splat_idx: u32, c_idx: u32) -> vec3<f32> {
@@ -111,31 +112,119 @@ fn computeColorFromSH(dir: vec3<f32>, v_idx: u32, sh_deg: u32) -> vec3<f32> {
     return  max(vec3<f32>(0.), result);
 }
 
-@compute @workgroup_size(workgroupSize,1,1)
-fn preprocess(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) wgs: vec3<u32>) {
-    let idx = gid.x;
+// stretch and rotate into correct ellipsoid shape 
+// returns covariance matrix of the gaussian
+fn compute_covariance(g: Gaussian) -> mat3x3<f32> {
+    // rot in quaternion
+    let q_wx = unpack2x16float(g.rot[0]);
+    let q_yz = unpack2x16float(g.rot[1]);
+    let q = normalize(vec4<f32>(q_wx.x, q_wx.y, q_yz.x, q_yz.y)); // must be unit length to be a rotation
+    let r = q.x;
+    let x = q.y;
+    let y = q.z;
+    let z = q.w;
 
-    if (idx > arrayLength(&gaussians)) {
-        return;
-    }
+    // scale 
+    let scale_xy = unpack2x16float(g.scale[0]);
+    let scale_z = unpack2x16float(g.scale[1]).x;
+    let scale = exp(vec3<f32>(scale_xy.x, scale_xy.y, scale_z)) * renderSettings.gaussian_scaling;
 
-    let xy = unpack2x16float(gaussians[idx].pos_opacity[0]);
-    let za = unpack2x16float(gaussians[idx].pos_opacity[1]);
-    let pos = vec4<f32>(xy.x, xy.y, za.x, 1.0);
+    let R = mat3x3<f32>(
+        1. - 2. * (y * y + z * z), 2. * (x * y - r * z),      2. * (x * z + r * y),
+        2. * (x * y + r * z),      1. - 2. * (x * x + z * z), 2. * (y * z - r * x),
+        2. * (x * z - r * y),      2. * (y * z + r * x),      1. - 2. * (x * x + y * y)
+    );
 
+
+    let S = mat3x3<f32>(
+        scale.x, 0., 0.,
+        0., scale.y, 0.,
+        0., 0., scale.z
+    );
+
+    let M = S * R;
+    return transpose(M) * M; // Rt * St * S * R
+}
+
+fn check_frustum_culling(pos: vec4<f32>) -> bool {
     // world -> clip space 
     let clip_pos = camera.proj * camera.view * pos;
 
     if (clip_pos.w <= 0.) { 
-        return; 
+        return false; 
     }
 
     let ndc = clip_pos.xyz / clip_pos.w;
     let edgeBounds = 1.2;
-    if (abs(ndc.x) > edgeBounds || abs(ndc.y) > edgeBounds) { return; }
+    if (abs(ndc.x) > edgeBounds || abs(ndc.y) > edgeBounds) { return false; }
 
+    return true;
+}
+
+fn project_to_2d(pos: vec4<f32>) -> mat3x3<f32> {
+    // view matrix 
+    // dont include translation 
+    let W = transpose(mat3x3<f32>(
+    camera.view[0].xyz, camera.view[1].xyz, camera.view[2].xyz));
+
+    // projection (jacobian) matrix 
+    let t = (camera.view * pos).xyz; // view space center of gaussian 
+    let fx = camera.focal.x;
+    let fy = camera.focal.y;
+    let J = mat3x3<f32>(
+    fx / t.z, 0.0,      -(fx * t.x) / (t.z * t.z),
+    0.0,      fy / t.z, -(fy * t.y) / (t.z * t.z),
+    0.0,      0.0,       0.0
+    );
+
+    return W * J;
+}
+
+@compute @workgroup_size(workgroupSize,1,1)
+fn preprocess(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) wgs: vec3<u32>) {
+    let idx = gid.x;
+
+    if (idx >= arrayLength(&gaussians)) {
+        return;
+    }
+
+    let g = gaussians[idx];
+    let xy = unpack2x16float(g.pos_opacity[0]);
+    let za = unpack2x16float(g.pos_opacity[1]);
+    let pos = vec4<f32>(xy.x, xy.y, za.x, 1.0);
+
+    // 0. check gaussian is within the view frustum
+    if (!check_frustum_culling(pos)) {
+        return;
+    }
+    // add to sorting buffer
     let key_idx = atomicAdd(&sort_infos.keys_size, 1u);
     sort_indices[key_idx] = idx;
+
+    // 1. compute covariance (shape)
+    let sigma = compute_covariance(gaussians[idx]);
+    let WJ = project_to_2d(pos);
+
+    let cov2d = transpose(WJ) * sigma * WJ;
+
+    // a b 
+    // b c 
+    let a = cov2d[0][0] + 0.3;
+    let b = cov2d[0][1];
+    let c = cov2d[1][1] + 0.3;
+    let det = (a * c - b * b);
+
+    // conic (inverse of cov)
+    // falloff 
+    let conic = vec3<f32>(c, -b, a) / det;
+
+    // radius (eigenvalues)
+    // quad size 
+    let mid = 0.5 * (a + c);
+    let lambda1 = mid + sqrt(max(0.1, mid * mid - det));
+    let lambda2 = mid - sqrt(max(0.1, mid * mid - det));
+    let radius = ceil(3.0 * sqrt(max(lambda1, lambda2)));
+
 
     let keys_per_dispatch = workgroupSize * sortKeyPerThread; 
     // increment DispatchIndirect.dispatchx each time you reach limit for one dispatch of keys
