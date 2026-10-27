@@ -33,8 +33,15 @@ export default function get_renderer(
   // ===============================================
   //            Initialize GPU Buffers
   // ===============================================
-
   const nulling_data = new Uint32Array([0]);
+
+  const splat_buffer = createBuffer(device, 'splats', pc.num_points * 48,
+  GPUBufferUsage.STORAGE);
+
+  const settings_buffer = createBuffer(device, 'render settings', 8,
+  GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  new Float32Array([1.0, pc.sh_deg]));
+
 
   // ===============================================
   //    Create Compute Pipeline and Bind Groups
@@ -52,6 +59,22 @@ export default function get_renderer(
     },
   });
 
+  const camera_bind_group = device.createBindGroup({
+    label: 'preprocess camera',
+    layout: preprocess_pipeline.getBindGroupLayout(0),
+    entries: [{binding: 0, resource: { buffer: camera_buffer }}],
+  });
+
+  const gaussian_bind_group = device.createBindGroup({
+    label: 'preprocess gaussians',
+    layout: preprocess_pipeline.getBindGroupLayout(1),
+    entries: [
+      {binding: 0, resource: { buffer: pc.gaussian_3d_buffer }},
+      {binding: 1, resource: { buffer: splat_buffer }},
+      {binding: 2, resource: { buffer: pc.sh_buffer}},
+    ],
+  });
+
   const sort_bind_group = device.createBindGroup({
     label: 'sort',
     layout: preprocess_pipeline.getBindGroupLayout(2),
@@ -63,11 +86,18 @@ export default function get_renderer(
     ],
   });
 
+  const settings_bind_group = device.createBindGroup({
+    label: 'render settings',
+    layout: preprocess_pipeline.getBindGroupLayout(3),
+    entries: [
+      { binding: 0, resource: { buffer: settings_buffer } },
+    ],
+  });
+
 
   // ===============================================
   //    Create Render Pipeline and Bind Groups
   // ===============================================
-  
 
   // ===============================================
   //    Command Encoder Functions
@@ -76,9 +106,23 @@ export default function get_renderer(
 
   // ===============================================
   //    Return Render Object
-  // ===============================================
+  // =============================================== 
+    const preprocess = (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => {
+    const pass = encoder.beginComputePass({
+      label: 'preprocess',
+    });
+    pass.setPipeline(preprocess_pipeline);
+    pass.setBindGroup(0, camera_bind_group);
+    pass.setBindGroup(1, gaussian_bind_group);
+    pass.setBindGroup(2, sort_bind_group);
+    pass.setBindGroup(3, settings_bind_group);
+    pass.end();
+  };
+
+  
   return {
     frame: (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => {
+      preprocess(encoder, texture_view);
       sorter.sort(encoder);
     },
     camera_buffer,
