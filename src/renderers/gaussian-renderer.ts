@@ -5,7 +5,7 @@ import { get_sorter,c_histogram_block_rows,C } from '../sort/sort';
 import { Renderer } from './renderer';
 
 export interface GaussianRenderer extends Renderer {
-
+    set_gaussian_scale: (v: number) => void;
 }
 
 // Utility to create GPU buffers
@@ -108,23 +108,27 @@ export default function get_renderer(
   //    Return Render Object
   // =============================================== 
     const preprocess = (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => {
-    const pass = encoder.beginComputePass({
-      label: 'preprocess',
-    });
-    pass.setPipeline(preprocess_pipeline);
-    pass.setBindGroup(0, camera_bind_group);
-    pass.setBindGroup(1, gaussian_bind_group);
-    pass.setBindGroup(2, sort_bind_group);
-    pass.setBindGroup(3, settings_bind_group);
-    pass.end();
+        device.queue.writeBuffer(sorter.sort_info_buffer, 0, nulling_data);
+        device.queue.writeBuffer(sorter.sort_dispatch_indirect_buffer, 0, nulling_data);
+        const pass = encoder.beginComputePass({
+        label: 'preprocess',
+        });
+        pass.setPipeline(preprocess_pipeline);
+        pass.setBindGroup(0, camera_bind_group);
+        pass.setBindGroup(1, gaussian_bind_group);
+        pass.setBindGroup(2, sort_bind_group);
+        pass.setBindGroup(3, settings_bind_group);
+        pass.dispatchWorkgroups(Math.ceil(pc.num_points / C.histogram_wg_size));
+        pass.end();
   };
 
-  
+
   return {
     frame: (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => {
       preprocess(encoder, texture_view);
       sorter.sort(encoder);
     },
     camera_buffer,
+    set_gaussian_scale: (v: number) => device.queue.writeBuffer(settings_buffer, 0, new Float32Array([v])),
   };
 }
