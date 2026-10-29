@@ -94,20 +94,70 @@ export default function get_renderer(
     ],
   });
 
-
   // ===============================================
   //    Create Render Pipeline and Bind Groups
-  // ===============================================
+  // =============================================== 
+  const render_shader = device.createShaderModule({code: renderWGSL});
+  const render_pipeline = device.createRenderPipeline({
+    label: 'render',
+    layout: 'auto',
+    vertex: {
+        module: render_shader,
+        entryPoint: 'vs_main',
+    },
+    fragment: {
+        module: render_shader,
+        entryPoint: 'fs_main',
+        targets: [{
+        format: presentation_format,
+            blend: {
+                color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+                alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            },
+        }],
+    }, 
+        primitive: {
+        topology: 'triangle-strip',
+    },
+  });
+
+  const render_bind_group = device.createBindGroup({
+    label: 'render',
+    layout: render_pipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: camera_buffer } },
+      { binding: 1, resource: { buffer: splat_buffer } },
+      { binding: 2, resource: { buffer: sorter.sort_info_buffer } },
+      { binding: 3, resource: { buffer: sorter.ping_pong[0].sort_indices_buffer } },
+    ],
+  });
+
+  // placeholder 0 for second slot 
+  const draw_buffer = createBuffer(device, 'draw indirect', 16,
+    GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST, new Uint32Array([4, 0, 0, 0])); 
+
+  const render = (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => {
+    const pass = encoder.beginRenderPass({
+      label: 'gaussian splat render',
+    colorAttachments: [
+        {
+            view: texture_view,
+            loadOp: 'clear',
+            storeOp: 'store',
+        }
+        ],
+    });
+
+    pass.setPipeline(render_pipeline);
+    pass.setBindGroup(0, render_bind_group);
+    pass.drawIndirect(draw_buffer, 0);
+    pass.end();
+  };
 
   // ===============================================
   //    Command Encoder Functions
   // ===============================================
-  
-
-  // ===============================================
-  //    Return Render Object
-  // =============================================== 
-    const preprocess = (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => {
+  const preprocess = (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => {
         device.queue.writeBuffer(sorter.sort_info_buffer, 0, nulling_data);
         device.queue.writeBuffer(sorter.sort_dispatch_indirect_buffer, 0, nulling_data);
         const pass = encoder.beginComputePass({
@@ -122,11 +172,16 @@ export default function get_renderer(
         pass.end();
   };
 
-
+  // ===============================================
+  //    Return Render Object
+  // =============================================== 
   return {
     frame: (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => {
       preprocess(encoder, texture_view);
       sorter.sort(encoder);
+      // keys_size → instance_count
+      encoder.copyBufferToBuffer(sorter.sort_info_buffer, 0, draw_buffer, 4, 4); 
+      render(encoder, texture_view);
     },
     camera_buffer,
     set_gaussian_scale: (v: number) => device.queue.writeBuffer(settings_buffer, 0, new Float32Array([v])),
