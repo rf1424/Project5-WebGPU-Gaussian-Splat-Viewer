@@ -8,8 +8,13 @@
 ![bicyle1](readme_data/bicycle.png)
 ![bicyle2](readme_data/bicycle_pts.png)
 
-This video is compressed. See live demo for better results:
-### [Live Demo]
+
+
+https://github.com/user-attachments/assets/7ea62cd3-b155-4c36-937e-17b7731a4c58
+
+
+This video is compressed. For better results, see the live demo and load a Gaussian scene.
+### [Live Demo Here](https://rf1424.github.io/WebGPU-Gaussian-Splat-Viewer/)
 
 
 This project is a real-time viewer for 3D Gaussian Splatting scenes, built with WebGPU. Each scene is made of millions of small, soft, colored 3D blobs (Gaussians) that together recreate a physical scene from image data. 
