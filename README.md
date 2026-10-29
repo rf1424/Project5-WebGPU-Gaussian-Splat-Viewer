@@ -2,12 +2,25 @@
 
 **University of Pennsylvania, CIS 565: GPU Programming and Architecture, Project 5**
 
-* (TODO) YOUR NAME HERE
-* Tested on: (TODO) **Google Chrome 222.2** on
-  Windows 22, i7-2222 @ 2.22GHz 22GB, GTX 222 222MB (Moore 2222 Lab)
+* Rin Fukuoka
+* Tested on: Windows 11, i9-13900HX @ 2.20 GHz, 32GB RAM, RTX 4080 Laptop GPU 12GB
+
+![bicyle1](readme_data/bicycle.png)
+![bicyle2](readme_data/bicycle_pts.png)
 
 This video is compressed. See live demo for better results:
 ### [Live Demo]
+
+
+This project is a real-time viewer for 3D Gaussian Splatting scenes, built with WebGPU. Each scene is made of millions of small, soft, colored 3D blobs (Gaussians) that together recreate a physical scene from image data. 
+
+Starting from pretrained scenes, I built the pipeline to render these Gaussians in the browser in real time. I first implemented a simple point cloud renderer that draws the center of each Gaussian as a dot, then a full Gaussian renderer that draws each one as a soft, oriented splat. Each frame of the Gaussian renderer runs in three stages. 
+
+In the **preprocess pass**, a compute shader runs once per Gaussian. It performs view frustum culling to discard Gaussians outside the camera's view, builds each remaining Gaussian's 3D covariance from its rotation and scale, and projects it to a 2D covariance on screen. From that it derives the conic for opacity, the splat's radius and quad size, and its view-dependent color from spherical harmonics. The results are written to a splat buffer, along with a depth key and index for sorting.
+
+In the **sorting pass**, a GPU radix sort, made of several compute passes, orders the visible Gaussians by depth so they can be drawn back to front.
+
+In the **rendering pass**, each visible Gaussian is drawn as an instanced quad using an indirect draw call. The fragment shader uses the conic to fade opacity exponentially away from the splat center, and the splats are alpha-blended back to front into a smooth, photo-like image.
 
 ## Performance Analysis
 
@@ -48,6 +61,8 @@ Frame time (ms) with and without view frustum culling:
 |---|---:|---:|
 | On  | 9.20 | 2.90 |
 | Off | 9.17 | 3.00 |
+
+Culling made no real difference. While I tested with object scenes here, culling should help more when the camera is inside/zoomed in on an environment and most Gaussians are out of view. 
 
 ### Credits
 
