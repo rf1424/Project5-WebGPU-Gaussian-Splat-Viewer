@@ -21,7 +21,7 @@ This project is a real-time viewer for 3D Gaussian Splatting scenes, built with 
 
 Starting from pretrained scenes, I built the pipeline to render these Gaussians in the browser in real time. I first implemented a simple point cloud renderer that draws the center of each Gaussian as a dot, then a full Gaussian renderer that draws each one as a soft, oriented splat. Each frame of the Gaussian renderer runs in three stages. 
 
-In the **preprocess pass**, a compute shader runs once per Gaussian. It performs view frustum culling to discard Gaussians outside the camera's view, builds each remaining Gaussian's 3D covariance from its rotation and scale, and projects it to a 2D covariance on screen. From that it derives the conic for opacity, the splat's radius and quad size, and its view-dependent color from spherical harmonics. The results are written to a splat buffer, along with a depth key and index for sorting.
+In the **preprocess pass**, a compute shader runs once per Gaussian. It performs view frustum culling to discard Gaussians outside the camera's view, builds each remaining Gaussian's 3D covariance from its rotation and scale, and projects it to a 2D covariance on screen. From that it derives the conic, the splat's radius and quad size, and its view-dependent color from spherical harmonics. The results are written to a splat buffer, along with a depth key and index for sorting.
 
 In the **sorting pass**, a GPU radix sort, made of several compute passes, orders the visible Gaussians by depth so they can be drawn back to front.
 
