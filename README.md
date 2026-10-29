@@ -1,4 +1,4 @@
-# Project5-WebGPU-Gaussian-Splat-Viewer
+# WebGPU-Gaussian-Splat-Viewer
 
 **University of Pennsylvania, CIS 565: GPU Programming and Architecture, Project 5**
 
@@ -6,21 +6,48 @@
 * Tested on: (TODO) **Google Chrome 222.2** on
   Windows 22, i7-2222 @ 2.22GHz 22GB, GTX 222 222MB (Moore 2222 Lab)
 
-### Live Demo
+This video is compressed. See live demo for better results:
+### [Live Demo]
 
-[![](img/thumb.png)](http://TODO.github.io/Project4-WebGPU-Forward-Plus-and-Clustered-Deferred)
+## Performance Analysis
 
-### Demo Video/GIF
+All numbers are frame times in milliseconds, averaged over 5 seconds at 1920×1080 resolution.
 
-[![](img/video.mp4)](TODO)
+#### Point Cloud vs. Gaussian Renderer
 
-### (TODO: Your README)
+![Point cloud vs. Gaussian renderer](readme_data/graph0.png)
 
-*DO NOT* leave the README to the last minute! It is a crucial part of the
-project, and we will not be able to grade you without a good README.
+Gaussian splatting is about 17–18× slower in both scenes. The point cloud draws one pixel per Gaussian. The Gaussian renderer computes each Gaussian's shape and color, sorts them by depth, and draws a blended quad of many pixels for each. The bicycle scene is slower in both because it has more Gaussians.
 
-This assignment has a considerable amount of performance analysis compared
-to implementation work. Complete the implementation early to leave time!
+#### Workgroup Size
+
+Frame time (ms) by preprocess workgroup size:
+
+| Workgroup Size (threads) | bicycle_cleaned.ply (ms) | bonsai.ply (ms) |
+|---:|---:|---:|
+| 256 | 9.24 | 2.78 |
+| 128 | 9.11 | 3.20 |
+| 64  | 9.20 | 2.75 |
+| 32  | 8.80 | 2.95 |
+
+Workgroup size has almost no effect. Each thread handles its own Gaussian independently, so grouping matters little.
+
+#### Number of Gaussians
+
+![Frame time vs. fraction of Gaussians kept](readme_data/graph1.png)
+
+Bicycle scene (1,063,091 Gaussians total).
+
+Frame time drops steadily with fewer Gaussians: 1/8 of them is about 4× faster. It's not exactly proportional, because some costs are fixed (pass setup, screen clear, the sort's fixed steps), and fewer Gaussians also means less overlap per pixel. 
+
+#### Culling vs. No Culling
+
+Frame time (ms) with and without view frustum culling:
+
+| Frustum Culling | bicycle_cleaned.ply (ms) | bonsai.ply (ms) |
+|---|---:|---:|
+| On  | 9.20 | 2.90 |
+| Off | 9.17 | 3.00 |
 
 ### Credits
 
